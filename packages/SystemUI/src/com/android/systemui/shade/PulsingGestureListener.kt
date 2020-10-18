@@ -17,17 +17,24 @@
 package com.android.systemui.shade
 
 import android.content.Context
+import android.database.ContentObserver
 import android.graphics.Point
 import android.hardware.display.AmbientDisplayConfiguration
+import android.os.Handler
 import android.os.PowerManager
+import android.os.UserHandle
 import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.Settings
+import android.provider.Settings.System.GESTURE_DOUBLE_TAP
+import android.provider.Settings.System.GESTURE_SINGLE_TAP
+import android.provider.Settings.System.GESTURES_ENABLED
 import android.view.GestureDetector
 import android.view.MotionEvent
 import com.android.systemui.Dumpable
 import com.android.systemui.dagger.SysUISingleton
+import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.dock.DockManager
 import com.android.systemui.dump.DumpManager
 import com.android.systemui.keyguard.domain.interactor.DozeInteractor
@@ -38,6 +45,7 @@ import com.android.systemui.power.domain.interactor.PowerInteractor
 import com.android.systemui.settings.UserTracker
 import com.android.systemui.tuner.TunerService
 import com.android.systemui.tuner.TunerService.Tunable
+import com.android.systemui.util.settings.SystemSettings
 import java.io.PrintWriter
 import javax.inject.Inject
 
@@ -54,6 +62,7 @@ import javax.inject.Inject
 class PulsingGestureListener
 @Inject
 constructor(
+    @Main private val handler: Handler,
     private val context: Context,
     private val falsingManager: FalsingManager,
     private val dockManager: DockManager,
@@ -63,12 +72,15 @@ constructor(
     private val shadeLogger: ShadeLogger,
     private val dozeInteractor: DozeInteractor,
     private val userTracker: UserTracker,
+    private val systemSettings: SystemSettings,
     tunerService: TunerService,
     dumpManager: DumpManager
 ) : GestureDetector.SimpleOnGestureListener(), Dumpable {
     private var doubleTapEnabled = false
     private var singleTapEnabled = false
     private var doubleTapEnabledNative = false
+    private var customDoubleTapEnabled = false
+    private var customSingleTapEnabled = false
 
     private val vibrator: Vibrator? = context.getSystemService(Vibrator::class.java)
 
@@ -92,6 +104,32 @@ constructor(
             Settings.Secure.DOZE_TAP_SCREEN_GESTURE
         )
 
+        val settingsObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                val doubleTap = systemSettings.getInt(
+                    GESTURE_DOUBLE_TAP,
+                    context.resources.getInteger(
+                            com.android.internal.R.integer.config_doubleTapDefault)
+                )
+                val singleTap = systemSettings.getInt(
+                    GESTURE_SINGLE_TAP,
+                    context.resources.getInteger(
+                            com.android.internal.R.integer.config_singleTapDefault)
+                )
+                val gesturesEnabled = systemSettings.getInt(GESTURES_ENABLED, 1) == 1
+                // WAKE_UP = 1; PULSE_AMBIENT = 2; from KeyHandler
+                customDoubleTapEnabled = gesturesEnabled && (doubleTap == 1 || doubleTap == 2)
+                customSingleTapEnabled = gesturesEnabled && (singleTap == 1 || singleTap == 2)
+            }
+        }
+        systemSettings.registerContentObserverForUserSync(
+                GESTURE_DOUBLE_TAP, settingsObserver, UserHandle.USER_ALL)
+        systemSettings.registerContentObserverForUserSync(
+                GESTURE_SINGLE_TAP, settingsObserver, UserHandle.USER_ALL)
+        systemSettings.registerContentObserverForUserSync(
+                GESTURES_ENABLED, settingsObserver, UserHandle.USER_ALL)
+        settingsObserver.onChange(false) // trigger initial update
+
         dumpManager.registerDumpable(this)
     }
 
@@ -101,8 +139,9 @@ constructor(
 
     fun onSingleTapUp(x: Float, y: Float): Boolean {
         val isNotDocked = !dockManager.isDocked
-        shadeLogger.logSingleTapUp(statusBarStateController.isDozing, singleTapEnabled, isNotDocked)
-        if (statusBarStateController.isDozing && singleTapEnabled && isNotDocked) {
+        val isSingleTapEnabled = singleTapEnabled || customSingleTapEnabled
+        shadeLogger.logSingleTapUp(statusBarStateController.isDozing, isSingleTapEnabled, isNotDocked)
+        if (statusBarStateController.isDozing && isSingleTapEnabled && isNotDocked) {
             val proximityIsNotNear = !falsingManager.isProximityNear
             val isNotAFalseTap = !falsingManager.isFalseTap(LOW_PENALTY)
             shadeLogger.logSingleTapUpFalsingState(proximityIsNotNear, isNotAFalseTap)
@@ -139,11 +178,12 @@ constructor(
         // checks MUST be on the ACTION_UP event.
         if (
             statusBarStateController.isDozing &&
-                (doubleTapEnabled || singleTapEnabled || doubleTapEnabledNative) &&
+                ((doubleTapEnabled || singleTapEnabled || doubleTapEnabledNative) ||
+                    customDoubleTapEnabled || customSingleTapEnabled) &&
                 !falsingManager.isProximityNear &&
                 !falsingManager.isFalseDoubleTap
         ) {
-            val isDoubleTap = doubleTapEnabled || doubleTapEnabledNative
+            val isDoubleTap = doubleTapEnabled || doubleTapEnabledNative || customDoubleTapEnabled
             val shouldVibrate = if (isDoubleTap) {
                 ambientDisplayConfiguration.doubleTapGestureVibrate(userTracker.userId)
             } else {
@@ -172,6 +212,8 @@ constructor(
         pw.println("singleTapEnabled=$singleTapEnabled")
         pw.println("doubleTapEnabled=$doubleTapEnabled")
         pw.println("doubleTapEnabledNative=$doubleTapEnabledNative")
+        pw.println("customSingleTapEnabled=$customSingleTapEnabled")
+        pw.println("customDoubleTapEnabled=$customDoubleTapEnabled")
         pw.println("isDocked=${dockManager.isDocked}")
         pw.println("isProxCovered=${falsingManager.isProximityNear}")
     }
