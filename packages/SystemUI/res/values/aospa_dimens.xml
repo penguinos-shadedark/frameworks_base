@@ -19,4 +19,8 @@
     <dimen name="power_menu_button_gap_vertical">48dp</dimen>
     <dimen name="power_menu_button_gap_horizontal">54dp</dimen>
 
+    <!-- StatusBar burn-in protection -->
+    <dimen name="horizontal_max_shift">4dp</dimen>
+    <dimen name="vertical_max_shift">4dp</dimen>
+
 </resources>
