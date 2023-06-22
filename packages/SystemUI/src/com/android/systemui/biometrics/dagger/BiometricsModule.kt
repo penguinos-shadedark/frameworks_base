@@ -25,6 +25,8 @@ import com.android.launcher3.icons.IconProvider
 import com.android.systemui.CoreStartable
 import com.android.systemui.biometrics.AuthController
 import com.android.systemui.biometrics.EllipseOverlapDetectorParams
+import com.android.systemui.biometrics.FingerprintInteractiveToAuthProvider
+import com.android.systemui.biometrics.FingerprintInteractiveToAuthProviderImpl
 import com.android.systemui.biometrics.UdfpsUtils
 import com.android.systemui.biometrics.data.repository.BiometricStatusRepository
 import com.android.systemui.biometrics.data.repository.BiometricStatusRepositoryImpl
@@ -114,6 +116,11 @@ interface BiometricsModule {
     @BindsOptionalOf fun authContextPlugins(): AuthContextPlugins
 
     @BindsOptionalOf fun deviceEntryUnlockTrackerViewBinder(): DeviceEntryUnlockTrackerViewBinder
+
+    @Binds
+    fun fingerprintInteractiveToAuthProvider(
+        impl: FingerprintInteractiveToAuthProviderImpl
+    ): FingerprintInteractiveToAuthProvider
 
     companion object {
         @Provides
