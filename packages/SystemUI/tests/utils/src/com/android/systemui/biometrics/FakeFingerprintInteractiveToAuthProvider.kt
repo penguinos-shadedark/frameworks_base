@@ -26,6 +26,8 @@ class FakeFingerprintInteractiveToAuthProvider : FingerprintInteractiveToAuthPro
     override fun getVendorExtension(userId: Int): AuthenticateReason.Vendor? =
         userIdToExtension[userId]
 
+    override fun isEnabled(userId: Int): Boolean = enabledForCurrentUser.value
+
     fun setVendorExtension(userId: Int, extension: AuthenticateReason.Vendor) {
         userIdToExtension[userId] = extension
     }
